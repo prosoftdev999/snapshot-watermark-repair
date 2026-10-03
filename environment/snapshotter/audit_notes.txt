@@ -1,0 +1,24 @@
+Incident: snap-2291
+
+The consistency auditor rejected the reconstruction after comparing it with
+replica readback. The failure is not isolated to one key: several node clock
+boundaries, retried writes and watermark claims disagree with readback.
+
+Operations also saved a sparse independent readback sample in
+/app/data/readback_samples.jsonl. It is not a complete snapshot and it does not
+say how reconstruction is supposed to work, but it is useful for falsifying a
+candidate interpretation. /app/snapshotter/check_readback.py compares a current
+/app/output.json against those samples and reports disagreements. That helper is
+for investigation only; the grader does not use it and a clean sample check does
+not prove the full answer is correct.
+
+Operations asked for a clean reconstruction from the captured evidence before
+re-cutting the snapshot. Treat reconstruct.py as the implementation that was
+running during the incident, not as ground truth.
+
+Replica comparison narrowed one discrepancy to retry collapsing when two accepted
+copies share the same corrected delivery instant. The retry coordinator's rule is
+deterministic: after timestamps are corrected to coordinator time, keep the earliest
+delivered copy; if corrected delivery times tie, keep the lexicographically smaller
+op_id. Source position is not a tie-break. The sparse readback remains useful as an
+independent cross-check, but it is intentionally incomplete.

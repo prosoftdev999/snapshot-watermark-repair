@@ -1,0 +1,30 @@
+artifacts = ["/app/output.json"]
+
+[task]
+name = "afterquery/snapshot-watermark-repair"
+
+[metadata]
+author_name = "Thomas Morison"
+author_email = "matiasv931026@gmail.com"
+difficulty_explanation = "The task is modeled on a database-reliability incident: the agent must explore a 2,494-row replication capture and the reconstruction implementation that produced a bad snapshot, identify which assumptions in that implementation are incompatible with the evidence, and independently rebuild the cluster state. The shipped data is synthetic but shaped like an incident export: 36 shards on 12 nodes, retry duplicates, puts and tombstones, clock probes, and watermark history clustered around the snapshot boundary. The hard part is not following a supplied recipe; it is separating several plausible interpretations of clock synchronization, retry identity, visibility, replay order, and watermark safety, then making those choices consistently across thousands of rows. A database/SRE engineer would perform this kind of forensic reconstruction after a failed consistency audit before allowing a snapshot or point-in-time restore to be trusted."
+solution_explanation = "Estimate one clock offset per node from the probe round with the smallest round-trip delay, using the standard offset formula, and join shards to nodes through topology.json - the offsets are per node, not per shard. Convert every replication and watermark timestamp onto the coordinator clock. Collapse retry copies by idempotency key, keeping the earliest delivered copy with op_id as the tie-break, and take that copy's sequence, apply time and payload. A write is in the snapshot when its apply time is at or before the close; replay each shard's visible writes in source_seq order so that puts and deletes resolve by log position rather than arrival. For each shard take the last watermark sample at or before the close, then look for a visible-or-not write whose sequence is at or below it but whose apply time is after the close; the smallest such sequence names the blocking operation and its predecessor is the largest safe watermark. Five shards fail that test. The reference program derives every number at runtime and hard-codes nothing."
+verification_explanation = "The verifier runs in its own container against ground truth baked into the verifier image, and only ever json.loads the agent's /app/output.json - it never executes anything the agent wrote. It checks the field set, JSON types and integer-ness, that every node and every shard is present, that unsafe_watermarks is sorted by shard and free of duplicates, and then compares each section against the answer key: node offsets, per-shard watermarks in force at the close, the full 435-entry key/version reconstruction across all 36 shards, and the unsafe-shard rows including repaired watermark and blocking op_id. Failures are grouped by section so a losing run shows which stage of the pipeline broke. The answer key was produced by the shipped reference solution and cross-checked against a second, independently written implementation that uses different algorithms for every stage; the verifier image also re-audits the key's shape at build time. Doing nothing leaves no artifact and scores 0, and partially correct reconstructions score 0."
+category = "Software"
+subcategory = "Databases"
+tags = ["databases", "distributed-systems", "replication", "debugging", "data-analysis"]
+expert_time_estimate_hours = 4.0
+relevant_experience = "I have spent several years on database reliability for a replicated key-value store, running snapshot and point-in-time-restore machinery and taking the pager for it. Reconstructing a snapshot from replication logs after an audit failure, arguing about whether a watermark was safe to publish, chasing NTP skew between a coordinator and its data nodes, and untangling idempotent client retries that the leader accepted into two different log slots are all things I have done on live incidents. I also wrote the consistency checker that graded those restores, which is where the verifier design here comes from."
+
+[verifier]
+timeout_sec = 120.0
+environment_mode = "separate"
+
+[agent]
+timeout_sec = 7200.0
+
+[environment]
+build_timeout_sec = 600.0
+cpus = 2
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
